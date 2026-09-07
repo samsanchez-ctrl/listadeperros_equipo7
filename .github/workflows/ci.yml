@@ -1,0 +1,106 @@
+name: CI Básico — Lista de Perros
+
+# Se ejecuta en push a develop y en Pull Request hacia main
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verificar-proyecto:
+    name: Verificar estructura del proyecto
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v3
+
+      - name: 📁 Verificar archivos clave del proyecto
+        run: |
+          echo "============================================"
+          echo " Verificando estructura del proyecto..."
+          echo "============================================"
+
+          ERROR=0
+
+          if [ -f "index.html" ]; then
+            echo "✅ index.html encontrado"
+          else
+            echo "❌ ERROR: index.html no encontrado"
+            ERROR=1
+          fi
+
+          if [ -f "index.js" ]; then
+            echo "✅ index.js encontrado"
+          else
+            echo "❌ ERROR: index.js no encontrado"
+            ERROR=1
+          fi
+
+          if [ -f "style.css" ]; then
+            echo "✅ style.css encontrado"
+          else
+            echo "❌ ERROR: style.css no encontrado"
+            ERROR=1
+          fi
+
+          if [ -f "README.md" ]; then
+            echo "✅ README.md encontrado"
+          else
+            echo "❌ ERROR: README.md no encontrado"
+            ERROR=1
+          fi
+
+          if [ $ERROR -eq 1 ]; then
+            echo ""
+            echo "❌ Verificación fallida. Revisa los archivos faltantes."
+            exit 1
+          fi
+
+      - name: 📄 Verificar que los archivos no estén vacíos
+        run: |
+          echo "============================================"
+          echo " Verificando contenido de archivos..."
+          echo "============================================"
+
+          ERROR=0
+
+          for archivo in index.html index.js style.css README.md; do
+            if [ -s "$archivo" ]; then
+              LINES=$(wc -l < "$archivo")
+              echo "✅ $archivo tiene contenido ($LINES líneas)"
+            else
+              echo "❌ ERROR: $archivo está vacío"
+              ERROR=1
+            fi
+          done
+
+          if [ $ERROR -eq 1 ]; then
+            echo ""
+            echo "❌ Hay archivos vacíos. Revisa el contenido."
+            exit 1
+          fi
+
+      - name: 🔍 Verificar workflow de CI/CD
+        run: |
+          echo "============================================"
+          echo " Verificando workflow de GitHub Actions..."
+          echo "============================================"
+
+          if [ -f ".github/workflows/ci.yml" ]; then
+            echo "✅ Workflow ci.yml encontrado"
+          else
+            echo "⚠️  Advertencia: ci.yml no encontrado en .github/workflows/"
+          fi
+
+      - name: ✅ Resultado final
+        run: |
+          echo ""
+          echo "============================================"
+          echo " ✅ Todas las verificaciones pasaron OK"
+          echo " Proyecto Lista de Perros — Equipo 7"
+          echo " DOY0101 Ingeniería DevOps"
+          echo "============================================"

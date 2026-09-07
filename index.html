@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lista de Perros 🐶</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Lista de Perros 🐶</h1>
+    <p class="subtitulo">Imágenes aleatorias de perros · Equipo 7 · DOY0101</p>
+  </header>
+
+  <main>
+    <div id="card" class="card">
+      <img id="dog-img" src="" alt="Perro aleatorio" />
+      <div class="acciones">
+        <button id="btn-like" class="btn btn-like">👍 Me gusta</button>
+        <button id="btn-dislike" class="btn btn-dislike">👎 No me gusta</button>
+        <button id="btn-nueva" class="btn btn-nueva">🔄 Nueva imagen</button>
+      </div>
+    </div>
+
+    <div id="contador" class="contador">
+      <p>Vistas: <span id="total">0</span> |
+         👍 <span id="likes">0</span> |
+         👎 <span id="dislikes">0</span></p>
+    </div>
+
+    <div id="historial" class="historial">
+      <h2>Historial</h2>
+      <ul id="lista-historial"></ul>
+    </div>
+  </main>
+
+  <script src="index.js"></script>
+</body>
+</html>

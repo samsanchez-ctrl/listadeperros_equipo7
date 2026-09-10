@@ -83,3 +83,11 @@ btnNueva.addEventListener('click', () => {
 // ——— Inicio ———
 habilitarBotones(false);
 obtenerPerro();
+
+// --- Feature: Porcentaje de likes ---
+function mostrarPorcentaje() {
+  if (totalVistas === 0) return;
+  const pct = Math.round((totalLikes / totalVistas) * 100);
+  const el = document.getElementById('porcentaje');
+  if (el) el.textContent = `Aprobacion: ${pct}%`;
+}

@@ -144,3 +144,9 @@ main {
   border-radius: 6px;
   color: #4a5568;
 }
+
+/* Feature: UI card */
+.card { transition: box-shadow 0.3s; }
+.card:hover { box-shadow: 0 8px 30px rgba(43,108,176,0.18); }
+.btn-like:hover:not(:disabled) { background: #38a169; }
+.btn-dislike:hover:not(:disabled) { background: #e53e3e; }

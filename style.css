@@ -144,3 +144,6 @@ main {
   border-radius: 6px;
   color: #4a5568;
 }
+
+/* Hotfix: error-msg */
+.error-msg { color: #c53030; background: #fff5f5; border: 1px solid #feb2b2; border-radius: 8px; padding: 0.6rem 1rem; margin: 0.5rem 1rem; font-size: 0.9rem; text-align: center; }

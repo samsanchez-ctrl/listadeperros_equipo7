@@ -144,8 +144,9 @@ listadeperros_equipo7/
 
 ## 👥 Autores
 
-- **Integrante 1** — [nombre completo]
-- **Integrante 2** — [nombre completo]
+- **Integrante 1** — [Freddy Munoz]
+- **Integrante 2** — [Vicente Maulen]
+- **Integrante 2** — [Samuel Sanchez]
 
 ---
 

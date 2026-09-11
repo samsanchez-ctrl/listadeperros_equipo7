@@ -147,3 +147,8 @@ main {
 
 /* Hotfix: error-msg */
 .error-msg { color: #c53030; background: #fff5f5; border: 1px solid #feb2b2; border-radius: 8px; padding: 0.6rem 1rem; margin: 0.5rem 1rem; font-size: 0.9rem; text-align: center; }
+/* Feature: UI card */
+.card { transition: box-shadow 0.3s; }
+.card:hover { box-shadow: 0 8px 30px rgba(43,108,176,0.18); }
+.btn-like:hover:not(:disabled) { background: #38a169; }
+.btn-dislike:hover:not(:disabled) { background: #e53e3e; }

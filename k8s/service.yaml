@@ -1,0 +1,15 @@
+# Service: un único punto de entrada que balancea entre todas las réplicas
+apiVersion: v1
+kind: Service
+metadata:
+  name: listadeperros
+  labels:
+    app: listadeperros
+spec:
+  type: ClusterIP
+  selector:
+    app: listadeperros
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

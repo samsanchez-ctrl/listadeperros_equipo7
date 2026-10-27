@@ -39,7 +39,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 🟢 Configurar Node.js
         uses: actions/setup-node@v5
@@ -73,7 +73,7 @@ jobs:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 🟢 Configurar Node.js
         uses: actions/setup-node@v5
@@ -111,7 +111,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 🐳 Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -163,7 +163,7 @@ jobs:
       name: staging
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 📥 Descargar imagen construida
         uses: actions/download-artifact@v4
@@ -208,7 +208,7 @@ jobs:
       name: production
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 📥 Descargar imagen construida
         uses: actions/download-artifact@v4

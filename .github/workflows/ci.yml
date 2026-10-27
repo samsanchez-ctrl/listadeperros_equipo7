@@ -1,106 +1,296 @@
-name: CI Básico — Lista de Perros
+name: CI/CD — Lista de Perros
 
-# Se ejecuta en push a develop y en Pull Request hacia main
+# ——————————————————————————————————————————————————————————————
+# Flujo:
+#   calidad ─┐
+#            ├─► build (Docker + Trivy) ─► staging (Compose) ─► producción (Kubernetes) ─► publicar (GHCR)
+#  seguridad ┘
+#
+# - En Pull Requests y en develop se ejecuta hasta staging.
+# - Solo un push a main despliega a producción y publica la imagen.
+# - Si falla cualquier etapa, las siguientes NO se ejecutan (bloqueo).
+# ——————————————————————————————————————————————————————————————
+
 on:
   push:
-    branches:
-      - develop
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Si llega un commit nuevo a la misma rama, se cancela la ejecución anterior
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Principio de mínimo privilegio: por defecto el token solo puede leer
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  IMAGE: listadeperros:${{ github.sha }}
 
 jobs:
-  verificar-proyecto:
-    name: Verificar estructura del proyecto
+  # ——————————————————————————————————————————————
+  calidad:
+    name: 1 · Lint y pruebas unitarias
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
       - name: 📥 Clonar repositorio
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
-      - name: 📁 Verificar archivos clave del proyecto
+      - name: 🟢 Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 📦 Instalar dependencias (versiones exactas del lockfile)
+        run: npm ci
+
+      - name: 🧹 ESLint
+        run: npm run lint
+
+      - name: 🧪 Jest con cobertura (umbral mínimo en package.json)
+        run: npm run test:ci
+
+      - name: 📊 Guardar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-${{ github.sha }}
+          path: coverage/
+          retention-days: 14
+
+  # ——————————————————————————————————————————————
+  seguridad:
+    name: 2 · Seguridad (npm audit + Snyk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: 🟢 Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🔒 npm audit (bloquea vulnerabilidades altas o críticas)
+        run: npm audit --audit-level=high
+
+      - name: 🔑 Verificar que exista el token de Snyk
         run: |
-          echo "============================================"
-          echo " Verificando estructura del proyecto..."
-          echo "============================================"
-
-          ERROR=0
-
-          if [ -f "index.html" ]; then
-            echo "✅ index.html encontrado"
-          else
-            echo "❌ ERROR: index.html no encontrado"
-            ERROR=1
-          fi
-
-          if [ -f "index.js" ]; then
-            echo "✅ index.js encontrado"
-          else
-            echo "❌ ERROR: index.js no encontrado"
-            ERROR=1
-          fi
-
-          if [ -f "style.css" ]; then
-            echo "✅ style.css encontrado"
-          else
-            echo "❌ ERROR: style.css no encontrado"
-            ERROR=1
-          fi
-
-          if [ -f "README.md" ]; then
-            echo "✅ README.md encontrado"
-          else
-            echo "❌ ERROR: README.md no encontrado"
-            ERROR=1
-          fi
-
-          if [ $ERROR -eq 1 ]; then
-            echo ""
-            echo "❌ Verificación fallida. Revisa los archivos faltantes."
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "::error title=Falta SNYK_TOKEN::Agrega el secret SNYK_TOKEN en Settings → Secrets and variables → Actions (y también en Dependabot)."
             exit 1
           fi
 
-      - name: 📄 Verificar que los archivos no estén vacíos
+      - name: 🛠️ Instalar Snyk CLI
+        run: npm install -g snyk
+
+      - name: 🐍 Snyk Open Source — dependencias
+        run: snyk test --severity-threshold=high
+
+      - name: 🔍 Snyk Code — análisis estático del código
+        run: snyk code test --severity-threshold=high
+
+  # ——————————————————————————————————————————————
+  build:
+    name: 3 · Build de imagen Docker + escaneo Trivy
+    needs: [calidad, seguridad]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: 🐳 Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Construir imagen (etiquetada con el SHA del commit)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # trivy-action fijado a 0.35.0 (release inmutable) y Trivy v0.69.3:
+      # versiones seguras tras el incidente de cadena de suministro de marzo 2026.
+      - name: 🛡️ Escanear imagen con Trivy (bloquea CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          version: v0.69.3
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: 📏 Tamaño de la imagen
+        run: docker image ls listadeperros
+
+      - name: 💾 Guardar imagen para las etapas de despliegue
+        run: docker save "$IMAGE" | gzip > imagen.tar.gz
+
+      - name: 📤 Subir imagen como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagen-${{ github.sha }}
+          path: imagen.tar.gz
+          retention-days: 7
+
+  # ——————————————————————————————————————————————
+  staging:
+    name: 4 · Despliegue staging (Docker Compose, 3 réplicas)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: staging
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: 📥 Descargar imagen construida
+        uses: actions/download-artifact@v4
+        with:
+          name: imagen-${{ github.sha }}
+
+      - name: 🐳 Cargar imagen en Docker
+        run: gunzip -c imagen.tar.gz | docker load
+
+      - name: 🚀 Levantar entorno (espera a que todo esté healthy)
+        run: docker compose up -d --no-build --wait --wait-timeout 90
+
+      - name: 📋 Estado de los contenedores
+        run: docker compose ps
+
+      - name: ✅ Smoke tests
         run: |
-          echo "============================================"
-          echo " Verificando contenido de archivos..."
-          echo "============================================"
+          set -e
+          curl -fsS http://localhost:8080/ | grep -q "Lista de Perros"   && echo "✅ index.html responde"
+          curl -fsS http://localhost:8080/logica.js -o /dev/null            && echo "✅ logica.js disponible"
+          curl -fsS http://localhost:8080/health | grep -q ok               && echo "✅ /health OK"
+          curl -fsSI http://localhost:8080/ | grep -qi "content-security-policy" && echo "✅ Cabecera CSP presente"
+          echo "Reparto de carga entre réplicas (10 peticiones):"
+          for i in $(seq 1 10); do curl -fsSI http://localhost:8080/ | grep -i x-replica; done | sort | uniq -c
 
-          ERROR=0
+      - name: 🔎 Logs si algo falló
+        if: failure()
+        run: docker compose logs
 
-          for archivo in index.html index.js style.css README.md; do
-            if [ -s "$archivo" ]; then
-              LINES=$(wc -l < "$archivo")
-              echo "✅ $archivo tiene contenido ($LINES líneas)"
-            else
-              echo "❌ ERROR: $archivo está vacío"
-              ERROR=1
-            fi
-          done
+      - name: 🧹 Bajar entorno
+        if: always()
+        run: docker compose down
 
-          if [ $ERROR -eq 1 ]; then
-            echo ""
-            echo "❌ Hay archivos vacíos. Revisa el contenido."
-            exit 1
-          fi
+  # ——————————————————————————————————————————————
+  produccion:
+    name: 5 · Despliegue producción (Kubernetes en kind)
+    needs: staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v5
 
-      - name: 🔍 Verificar workflow de CI/CD
+      - name: 📥 Descargar imagen construida
+        uses: actions/download-artifact@v4
+        with:
+          name: imagen-${{ github.sha }}
+
+      - name: 🐳 Cargar imagen en Docker
+        run: gunzip -c imagen.tar.gz | docker load
+
+      - name: ☸️ Crear cluster Kubernetes local (kind)
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: listadeperros
+
+      - name: 📦 Cargar imagen en el cluster
+        run: kind load docker-image "$IMAGE" --name listadeperros
+
+      - name: 🚀 Aplicar manifiestos con la imagen de este commit
         run: |
-          echo "============================================"
-          echo " Verificando workflow de GitHub Actions..."
-          echo "============================================"
+          sed -i "s|image: listadeperros:local|image: ${IMAGE}|" k8s/deployment.yaml
+          kubectl apply -f k8s/
+          kubectl annotate deployment/listadeperros \
+            kubernetes.io/change-cause="commit ${GITHUB_SHA::7} por ${GITHUB_ACTOR} (run ${GITHUB_RUN_NUMBER})" --overwrite
 
-          if [ -f ".github/workflows/ci.yml" ]; then
-            echo "✅ Workflow ci.yml encontrado"
-          else
-            echo "⚠️  Advertencia: ci.yml no encontrado en .github/workflows/"
-          fi
+      - name: ⏳ Esperar el rollout
+        run: kubectl rollout status deployment/listadeperros --timeout=120s
 
-      - name: ✅ Resultado final
+      - name: ✅ Smoke test dentro del cluster
         run: |
-          echo ""
-          echo "============================================"
-          echo " ✅ Todas las verificaciones pasaron OK"
-          echo " Proyecto Lista de Perros — Equipo 7"
-          echo " DOY0101 Ingeniería DevOps"
-          echo "============================================"
+          kubectl port-forward service/listadeperros 8080:80 > /dev/null 2>&1 &
+          sleep 3
+          curl -fsS http://localhost:8080/ | grep -q "Lista de Perros" && echo "✅ App responde en Kubernetes"
+          curl -fsS http://localhost:8080/health | grep -q ok        && echo "✅ /health OK"
+
+      - name: 📋 Estado del despliegue
+        if: always()
+        run: |
+          kubectl get deployment,pods,service,hpa,pdb -o wide
+          kubectl rollout history deployment/listadeperros
+
+  # ——————————————————————————————————————————————
+  publicar:
+    name: 6 · Publicar imagen en GitHub Container Registry
+    needs: produccion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write          # único job con permiso de escritura en paquetes
+    steps:
+      - name: 📥 Descargar imagen construida
+        uses: actions/download-artifact@v4
+        with:
+          name: imagen-${{ github.sha }}
+
+      - name: 🐳 Cargar imagen en Docker
+        run: gunzip -c imagen.tar.gz | docker load
+
+      - name: 🔐 Iniciar sesión en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Etiquetar y publicar (sha + latest)
+        run: |
+          DESTINO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/listadeperros"
+          docker tag "$IMAGE" "$DESTINO:${GITHUB_SHA}"
+          docker tag "$IMAGE" "$DESTINO:latest"
+          docker push "$DESTINO:${GITHUB_SHA}"
+          docker push "$DESTINO:latest"
+          echo "DESTINO=$DESTINO" >> "$GITHUB_ENV"
+
+      - name: 🧾 Resumen de trazabilidad
+        run: |
+          {
+            echo "## 🧾 Trazabilidad del despliegue"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Autor del push | @${GITHUB_ACTOR} |"
+            echo "| Ejecución | #${GITHUB_RUN_NUMBER} |"
+            echo "| Imagen | \`${DESTINO}:${GITHUB_SHA}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

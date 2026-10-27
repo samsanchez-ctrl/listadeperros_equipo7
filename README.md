@@ -172,6 +172,7 @@ Cada etapa depende de la anterior (`needs:`): **si una falla, el pipeline se det
 - `Dockerfile` **multi-stage**: la etapa `calidad` corre lint y tests dentro del build (si fallan, no hay imagen); la etapa `produccion` solo contiene los 4 archivos estáticos.
 - Imagen base `nginxinc/nginx-unprivileged:alpine`: liviana y ejecutada como **usuario no-root** (uid 101) en el puerto 8080.
 - `HEALTHCHECK` contra `/health` y `.dockerignore` para no copiar `.git`, `node_modules`, etc.
+- `apk upgrade` en la etapa final: instala las versiones corregidas de los paquetes del sistema de la imagen base (ver *Evidencia del bloqueo de seguridad*).
 
 ### 🔒 Seguridad (IE3)
 
@@ -180,6 +181,7 @@ Cada etapa depende de la anterior (`needs:`): **si una falla, el pipeline se det
 - Token de GitHub con **mínimo privilegio** (`contents: read`; solo el job de publicación tiene `packages: write`). Secretos solo en GitHub Secrets.
 - Nginx con cabeceras de seguridad (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`) y sin mostrar su versión.
 - Contenedores con sistema de archivos de solo lectura, `no-new-privileges` y todas las *capabilities* eliminadas (Compose y Kubernetes).
+- **Evidencia del bloqueo de seguridad:** en la primera ejecución del pipeline (PR del pipeline), Trivy encontró **47 vulnerabilidades HIGH** en paquetes del sistema de la imagen base (curl, openssl, expat, pcre2, util-linux, etc.). El pipeline **se detuvo en la etapa 3** y no desplegó. Se corrigió agregando `apk upgrade` al Dockerfile y la siguiente ejecución pasó el escaneo.
 - Acciones de terceros con versión fija (ej.: `trivy-action@0.35.0`, publicada como release inmutable tras el incidente de cadena de suministro de marzo de 2026).
 
 ### 📈 Escalabilidad y orquestación (IE3, IE5)
@@ -248,11 +250,13 @@ listadeperros_equipo7/
 
 ## 🧠 Decisiones técnicas del equipo
 
-> ✍️ **Completar por el equipo (sin IA, según la pauta).** Expliquen con sus palabras por qué eligieron:
-> - Snyk en vez de SonarQube
-> - Docker Compose para staging y Kubernetes para producción
-> - Los umbrales usados (cobertura 80%, severidad HIGH)
-> - La imagen `nginx-unprivileged` en vez de `nginx` normal
+> ✍️ **Completar por el equipo (sin IA, según la pauta).** Una o dos frases por punto. Reemplazar los textos entre `[ ]`.
+
+- **Snyk en vez de SonarQube:** [por qué]
+- **Docker Compose para staging y Kubernetes para producción:** [por qué]
+- **Umbrales (cobertura 80%, bloquear desde severidad HIGH):** [por qué]
+- **Imagen `nginx-unprivileged` (no-root):** [por qué]
+- **Cómo resolvimos el bloqueo de Trivy:** [qué pasó y qué aprendimos]
 
 ---
 
@@ -266,19 +270,31 @@ listadeperros_equipo7/
 
 ## 💭 Reflexiones individuales
 
-> ✍️ **Cada integrante escribe la suya, sin apoyo de IA** (requisito de la pauta): qué aprendió y cuál fue su aporte al proyecto.
+> ✍️ Cada integrante escribe la suya **sin apoyo de IA** (requisito de la pauta). Reemplazar los textos entre `[ ]`.
 
 ### Freddy Muñoz
 
-_Pendiente._
+**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+
+**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+
+**Mi aporte al proyecto:** [qué hiciste tú]
 
 ### Vicente Maulén
 
-_Pendiente._
+**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+
+**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+
+**Mi aporte al proyecto:** [qué hiciste tú]
 
 ### Samuel Sánchez
 
-_Pendiente._
+**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+
+**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+
+**Mi aporte al proyecto:** [qué hiciste tú]
 
 ---
 

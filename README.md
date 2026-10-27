@@ -270,31 +270,31 @@ listadeperros_equipo7/
 
 ## 💭 Reflexiones individuales
 
-> ✍️ Cada integrante escribe la suya **sin apoyo de IA** (requisito de la pauta). Reemplazar los textos entre `[ ]`.
-
-### Freddy Muñoz
-
-**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
-
-**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
-
-**Mi aporte al proyecto:** [qué hiciste tú]
+> Escritas por cada integrante sin apoyo de IA.
 
 ### Vicente Maulén
 
-**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+**¿Qué aprendí?** No sabía cómo usar Docker para meter la app en un contenedor y que corriera igual en cualquier lado.
 
-**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+**¿Qué me costó más?** Me costó que el contenedor levantara a la primera porque me faltaban cosas en la configuración. Lo arreglé mirando los errores en la terminal y probando de nuevo.
 
-**Mi aporte al proyecto:** [qué hiciste tú]
+**Mi aporte al proyecto:** Armé el archivo de Docker y probé que la app funcionara bien empaquetada.
+
+### Freddy Muñoz
+
+**¿Qué aprendí?** No sabía cómo pasarle herramientas de seguridad como Snyk o Trivy al proyecto para buscar fallos.
+
+**¿Qué me costó más?** Entender las alertas de seguridad que salían en los escaneos. Lo solucioné actualizando las librerías que daban problemas y volviendo a probar que la página cargara los perros sin caerse.
+
+**Mi aporte al proyecto:** Me encargué de correr los escaneos de seguridad y solucionar los fallos que iban saliendo.
 
 ### Samuel Sánchez
 
-**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+**¿Qué aprendí?** Aprendí a configurar el pipeline para automatizar las pruebas y a usar Kubernetes para subir la app.
 
-**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+**¿Qué me costó más?** Que el pipeline pasara completo sin fallar en las pruebas o en el despliegue. Lo solucioné revisando los fallos que tiraba el flujo y haciendo ajustes con el grupo.
 
-**Mi aporte al proyecto:** [qué hiciste tú]
+**Mi aporte al proyecto:** Subí el código, configuré la automatización del pipeline y la parte de Kubernetes.
 
 ---
 

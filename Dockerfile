@@ -29,6 +29,11 @@ LABEL org.opencontainers.image.title="listadeperros" \
       org.opencontainers.image.description="Lista de Perros — Equipo 7 · DOY0101" \
       org.opencontainers.image.source="https://github.com/samsanchez-ctrl/listadeperros_equipo7"
 
+# Actualiza los paquetes del sistema para corregir vulnerabilidades conocidas
+# detectadas por Trivy en la imagen base (curl, openssl, expat, pcre2, etc.)
+USER root
+RUN apk upgrade --no-cache
+
 # Configuración propia: cabeceras de seguridad, caché y endpoint /health
 COPY --chown=101:101 nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=calidad --chown=101:101 /dist/ /usr/share/nginx/html/

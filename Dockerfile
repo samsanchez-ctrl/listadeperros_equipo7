@@ -23,7 +23,7 @@ RUN mkdir /dist && cp index.html index.js logica.js style.css /dist/
 
 # ---------- Etapa 2: producción ----------
 # Imagen oficial de Nginx que corre como usuario no-root (uid 101) en el puerto 8080
-FROM nginxinc/nginx-unprivileged:1.29-alpine AS produccion
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS produccion
 
 LABEL org.opencontainers.image.title="listadeperros" \
       org.opencontainers.image.description="Lista de Perros — Equipo 7 · DOY0101" \

@@ -1,17 +1,44 @@
 # Lista de Perros 🐶 — Equipo 7
 
-Aplicación web que muestra imágenes aleatorias de perros obtenidas desde la API pública [dog.ceo](https://dog.ceo/dog-api/) y permite al usuario reaccionar con "me gusta" o "no me gusta". Incluye contador de reacciones e historial de razas vistas.
+![CI/CD](https://github.com/samsanchez-ctrl/listadeperros_equipo7/actions/workflows/ci.yml/badge.svg)
 
-Este repositorio es la base de trabajo para la **Evaluación Parcial N°1** de Ingeniería DevOps (DOY0101). A partir de este código, el equipo construyó su propio flujo de trabajo colaborativo aplicando Git, GitHub y GitHub Actions.
+Aplicación web que muestra imágenes aleatorias de perros obtenidas desde la API pública [dog.ceo](https://dog.ceo/dog-api/) y permite al usuario reaccionar con "me gusta" o "no me gusta". Incluye contador de reacciones, porcentaje de aprobación e historial de razas vistas.
+
+- **Evaluación Parcial N°1:** flujo colaborativo con Git, GitHub y un CI básico.
+- **Evaluación Parcial N°2:** pipeline CI/CD completo en GitHub Actions con contenedores, pruebas automatizadas, análisis de seguridad, despliegue automático y orquestación.
 
 ---
 
-## 🚀 Cómo levantar el proyecto localmente
+## 🚀 Cómo levantar el proyecto
 
-No requiere instalación de dependencias. Basta con abrir `index.html` directamente en el navegador, o servirlo con cualquier servidor estático:
+### Opción 1 — Desarrollo (Node.js 22)
 
 ```bash
-npx serve .
+npm ci            # instala dependencias de desarrollo
+npm run lint      # ESLint
+npm test          # pruebas unitarias e integración (Jest)
+npm run test:ci   # pruebas + reporte de cobertura
+npx serve .       # sirve la app en http://localhost:3000
+```
+
+### Opción 2 — Contenedores con Docker Compose (balanceador + 3 réplicas)
+
+```bash
+docker compose up -d --build      # construye la imagen y levanta todo
+# abrir http://localhost:8080
+docker compose up -d --scale app=5   # escalar a 5 réplicas
+docker compose down
+```
+
+### Opción 3 — Kubernetes local (kind)
+
+```bash
+docker build -t listadeperros:local .
+kind create cluster --name listadeperros
+kind load docker-image listadeperros:local --name listadeperros
+kubectl apply -f k8s/
+kubectl rollout status deployment/listadeperros
+kubectl port-forward service/listadeperros 8080:80
 ```
 
 ---
@@ -100,30 +127,93 @@ hotfix/<nombre> → (Pull Request revisado) → main
 
 ---
 
-## ⚙️ Automatización CI/CD
+## ⚙️ Pipeline CI/CD (EP2)
 
-Configuramos un workflow en `.github/workflows/ci.yml` que se activa automáticamente en dos eventos:
+Archivo: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Se ejecuta en cada push y Pull Request hacia `develop` y `main`.
 
-- **Push a `develop`**: valida que los archivos clave del proyecto existan y tengan contenido
-- **Pull Request hacia `main`**: ejecuta la misma verificación antes de permitir el merge
+```
+ ┌──────────────┐
+ │ 1. Calidad   │ ESLint + Jest (cobertura mínima 80%)
+ └──────┬───────┘
+        │            ┌──────────────────┐
+        ├────────────┤ 2. Seguridad     │ npm audit + Snyk Open Source + Snyk Code
+        ▼            └────────┬─────────┘
+ ┌─────────────────────────────▼────┐
+ │ 3. Build                         │ imagen Docker multi-stage (tag = SHA del commit)
+ │                                  │ + escaneo Trivy (bloquea CRITICAL/HIGH)
+ └──────────────┬───────────────────┘
+                ▼
+ ┌──────────────────────────────────┐
+ │ 4. Staging (Docker Compose)      │ balanceador + 3 réplicas, healthchecks, smoke tests
+ └──────────────┬───────────────────┘
+                ▼   solo en push a main
+ ┌──────────────────────────────────┐
+ │ 5. Producción (Kubernetes/kind)  │ Deployment 3 réplicas, rolling update, HPA, smoke test
+ └──────────────┬───────────────────┘
+                ▼
+ ┌──────────────────────────────────┐
+ │ 6. Publicar en GHCR              │ ghcr.io/<owner>/listadeperros:<sha> y :latest
+ └──────────────────────────────────┘
+```
 
-### ¿Qué hace el workflow?
+Cada etapa depende de la anterior (`needs:`): **si una falla, el pipeline se detiene y no se despliega nada.**
 
-1. Clona el repositorio en un servidor Ubuntu limpio (sin estado anterior)
-2. Verifica que `index.html`, `index.js` y `style.css` existan y no estén vacíos
-3. Reporta el resultado de cada verificación con mensajes claros
+| Etapa | Qué hace | Indicador |
+|---|---|---|
+| 1 · Calidad | `npm ci`, ESLint y Jest con umbral de cobertura definido en `package.json` | IE2 |
+| 2 · Seguridad | `npm audit --audit-level=high`, `snyk test` y `snyk code test` con `--severity-threshold=high` | IE3 |
+| 3 · Build | Construye la imagen con Buildx (caché de GitHub), la escanea con Trivy y la guarda como artefacto | IE1, IE3 |
+| 4 · Staging | `docker compose up --wait` con la imagen del commit; prueba index, `/health`, cabecera CSP y reparto entre réplicas | IE4, IE5 |
+| 5 · Producción | Cluster Kubernetes efímero con kind; `kubectl apply`, `rollout status` y smoke test | IE4, IE5 |
+| 6 · Publicar | Sube la imagen a GitHub Container Registry y escribe un resumen de trazabilidad | IE4 |
 
-### Rol dentro de CI/CD
+### 🐳 Contenedores (IE1)
 
-Esta automatización simula la fase de **Integración Continua (CI)**. En un flujo real de DevOps, el propósito es que cada vez que un desarrollador sube cambios al repositorio, el sistema verifique automáticamente que el código no rompe el proyecto base, sin necesidad de intervención manual.
+- `Dockerfile` **multi-stage**: la etapa `calidad` corre lint y tests dentro del build (si fallan, no hay imagen); la etapa `produccion` solo contiene los 4 archivos estáticos.
+- Imagen base `nginxinc/nginx-unprivileged:alpine`: liviana y ejecutada como **usuario no-root** (uid 101) en el puerto 8080.
+- `HEALTHCHECK` contra `/health` y `.dockerignore` para no copiar `.git`, `node_modules`, etc.
 
-En proyectos más grandes, en este mismo paso se ejecutarían:
-- Tests unitarios y de integración
-- Análisis de calidad de código (linters)
-- Construcción del artefacto (build)
-- Publicación en un entorno de staging
+### 🔒 Seguridad (IE3)
 
-El **Despliegue Continuo (CD)** correspondería al siguiente paso: tomar el artefacto verificado y desplegarlo automáticamente en un servidor o plataforma cloud.
+- **Dependabot** (`.github/dependabot.yml`): revisa semanalmente npm, GitHub Actions y la imagen Docker, y abre PRs hacia `develop`.
+- **Snyk** (dependencias y código) + **npm audit** + **Trivy** (imagen): cualquier hallazgo HIGH o CRITICAL **hace fallar el pipeline** y bloquea el despliegue.
+- Token de GitHub con **mínimo privilegio** (`contents: read`; solo el job de publicación tiene `packages: write`). Secretos solo en GitHub Secrets.
+- Nginx con cabeceras de seguridad (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`) y sin mostrar su versión.
+- Contenedores con sistema de archivos de solo lectura, `no-new-privileges` y todas las *capabilities* eliminadas (Compose y Kubernetes).
+- Acciones de terceros con versión fija (ej.: `trivy-action@0.35.0`, publicada como release inmutable tras el incidente de cadena de suministro de marzo de 2026).
+
+### 📈 Escalabilidad y orquestación (IE3, IE5)
+
+| | Docker Compose (staging) | Kubernetes (producción) |
+|---|---|---|
+| Réplicas | 3 (`deploy.replicas`), escalable con `--scale` | 3, autoescalado 3–10 con HPA (CPU 70%) |
+| Balanceo | Nginx como balanceador (`loadbalancer/nginx.conf`) | `Service` ClusterIP |
+| Recursos | Límite 0.25 CPU / 64 MB por réplica | requests/limits de CPU y memoria |
+| Salud | `healthcheck` + `depends_on: service_healthy` | `readinessProbe` y `livenessProbe` |
+| Disponibilidad | `restart: unless-stopped` | Rolling update con `maxUnavailable: 0` + PodDisruptionBudget (mín. 2) |
+
+### 🧾 Trazabilidad y calidad (IE4)
+
+La cadena completa de un cambio queda registrada:
+
+```
+issue / tarea → rama feature/* → commits (Conventional Commits) → Pull Request revisado
+   → ejecución del pipeline (#run) → imagen listadeperros:<SHA> → despliegue (change-cause con SHA y autor)
+```
+
+- La imagen se etiqueta con el **SHA del commit** y lleva la etiqueta OCI `revision`, así cualquier contenedor en ejecución se puede rastrear hasta su commit.
+- En Kubernetes, cada despliegue anota `change-cause` con commit, autor y número de ejecución (`kubectl rollout history`), lo que permite hacer **rollback** a una versión conocida.
+- Los environments `staging` y `production` de GitHub registran cada despliegue.
+- El job final escribe un **resumen** (commit, autor, ejecución, imagen) en la pestaña Summary de Actions.
+- Reportes de cobertura guardados como artefactos por 14 días.
+- Protección de rama: `main` y `develop` exigen PR aprobado y pipeline en verde.
+
+### 🔧 Configuración necesaria en GitHub (una sola vez)
+
+1. **Snyk:** crear cuenta en snyk.io → Account settings → copiar el *Auth Token* → en GitHub: *Settings → Secrets and variables → Actions → New repository secret* con nombre `SNYK_TOKEN`. Agregar el mismo secret en *Secrets → Dependabot* para que los PRs de Dependabot también pasen. Activar **Snyk Code** en *Settings → Snyk Code* dentro de Snyk.
+2. **Environments:** *Settings → Environments* → crear `staging` y `production`.
+3. **Protección de ramas:** *Settings → Branches* → regla para `main` y `develop`: requerir PR, 1 aprobación y que pasen los checks del pipeline.
+4. **Dependabot alerts:** *Settings → Code security* → activar *Dependabot alerts* y *Dependabot security updates*.
 
 ---
 
@@ -132,31 +222,74 @@ El **Despliegue Continuo (CD)** correspondería al siguiente paso: tomar el arte
 ```
 listadeperros_equipo7/
 ├── .github/
-│   └── workflows/
-│       └── ci.yml          ← Pipeline de GitHub Actions
-├── index.html              ← Estructura HTML de la aplicación
-├── index.js                ← Lógica: fetch a API, eventos, historial
-├── style.css               ← Estilos visuales
-└── README.md               ← Esta guía
+│   ├── workflows/ci.yml          ← Pipeline CI/CD
+│   ├── dependabot.yml            ← Actualizaciones automáticas de dependencias
+│   └── pull_request_template.md  ← Checklist de cada PR
+├── k8s/                          ← Manifiestos de Kubernetes
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── hpa.yaml
+│   └── pdb.yaml
+├── loadbalancer/nginx.conf       ← Balanceador para Docker Compose
+├── tests/
+│   ├── logica.test.js            ← Pruebas unitarias
+│   └── app.test.js               ← Pruebas de integración de la interfaz (jsdom)
+├── Dockerfile                    ← Imagen multi-stage
+├── docker-compose.yml            ← Orquestación local / staging
+├── nginx.conf                    ← Configuración del servidor dentro del contenedor
+├── eslint.config.js              ← Reglas de linting
+├── package.json                  ← Scripts, dependencias y umbral de cobertura
+├── index.html / index.js / style.css
+├── logica.js                     ← Funciones puras (testeables)
+└── README.md
 ```
+
+---
+
+## 🧠 Decisiones técnicas del equipo
+
+> ✍️ **Completar por el equipo (sin IA, según la pauta).** Expliquen con sus palabras por qué eligieron:
+> - Snyk en vez de SonarQube
+> - Docker Compose para staging y Kubernetes para producción
+> - Los umbrales usados (cobertura 80%, severidad HIGH)
+> - La imagen `nginx-unprivileged` en vez de `nginx` normal
 
 ---
 
 ## 👥 Autores
 
-- **Integrante 1** — [Freddy Munoz]
-- **Integrante 2** — [Vicente Maulen]
-- **Integrante 2** — [Samuel Sanchez]
+- **Integrante 1** — Freddy Muñoz
+- **Integrante 2** — Vicente Maulén
+- **Integrante 3** — Samuel Sánchez
+
+---
+
+## 💭 Reflexiones individuales
+
+> ✍️ **Cada integrante escribe la suya, sin apoyo de IA** (requisito de la pauta): qué aprendió y cuál fue su aporte al proyecto.
+
+### Freddy Muñoz
+
+_Pendiente._
+
+### Vicente Maulén
+
+_Pendiente._
+
+### Samuel Sánchez
+
+_Pendiente._
 
 ---
 
 ## 🤖 Uso de Inteligencia Artificial
 
-Se utilizó **Claude (Anthropic)** como herramienta de apoyo para:
-- Estructurar el formato del README
-- Diseñar el workflow de GitHub Actions
-- Verificar la sintaxis del script de configuración
+> ✍️ **Revisen y ajusten este texto para que refleje exactamente cómo usaron la IA.**
 
-Todas las decisiones técnicas (elección de GitFlow, convenciones de commits, estrategia de revisión) y las justificaciones fueron elaboradas y validadas por el equipo.
+Se utilizó **Claude (Anthropic)** como herramienta de apoyo para:
+- EP1: estructurar el README, diseñar el workflow inicial y verificar la sintaxis del script de configuración.
+- EP2: proponer la estructura del pipeline de GitHub Actions, el Dockerfile multi-stage, los manifiestos de Kubernetes, la configuración de Docker Compose y ejemplos de pruebas con Jest.
+
+Todo el contenido generado fue revisado, ejecutado y validado por el equipo. Las decisiones técnicas, justificaciones, conclusiones y reflexiones individuales fueron escritas por los integrantes sin apoyo de IA.
 
 > Referencia de citación IA: https://bibliotecas.duoc.cl/ia

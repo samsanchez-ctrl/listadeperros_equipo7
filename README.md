@@ -250,13 +250,20 @@ listadeperros_equipo7/
 
 ## 🧠 Decisiones técnicas del equipo
 
-> ✍️ **Completar por el equipo (sin IA, según la pauta).** Una o dos frases por punto. Reemplazar los textos entre `[ ]`.
+**¿Por qué usamos Snyk y no SonarQube?**
+Porque Snyk era mucho más rápido de conectar y te revisa todo de una. SonarQube nos pedía armar un servidor aparte y era complicarse la vida sin necesidad.
 
-- **Snyk en vez de SonarQube:** [por qué]
-- **Docker Compose para staging y Kubernetes para producción:** [por qué]
-- **Umbrales (cobertura 80%, bloquear desde severidad HIGH):** [por qué]
-- **Imagen `nginx-unprivileged` (no-root):** [por qué]
-- **Cómo resolvimos el bloqueo de Trivy:** [qué pasó y qué aprendimos]
+**¿Por qué Docker Compose para staging y Kubernetes para producción?**
+Compose sirve para hacer pruebas rápidas y ver que la página levante bien. Kubernetes se usa al final porque si la página se cae, la levanta sola y aguanta a mucha gente sin pegarse.
+
+**¿Por qué un mínimo de 80% de cobertura y bloquear desde vulnerabilidades HIGH?**
+El 80% te asegura que probaste casi todo el código sin volverte loco. Y lo paramos en HIGH porque esos sí son errores graves; si frenamos por errores chicos, no avanzamos nunca.
+
+**¿Por qué la imagen `nginx-unprivileged` en vez de la normal?**
+Porque no tiene permisos de dueño. Si alguien se mete a hackear el contenedor, no va a poder hacer casi nada porque no tiene el control.
+
+**¿Qué pasó con el bloqueo de Trivy y qué aprendimos?**
+La base de la app venía con fallos de fábrica. Trivy nos frenó todo y aprendimos que hay que actualizar las cosas desde el principio para que el sistema no te rebaje el trabajo.
 
 ---
 

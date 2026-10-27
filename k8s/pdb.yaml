@@ -1,0 +1,10 @@
+# PodDisruptionBudget: durante mantenciones del cluster siempre quedan al menos 2 réplicas activas
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: listadeperros
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: listadeperros

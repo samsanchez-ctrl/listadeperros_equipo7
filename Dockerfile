@@ -8,7 +8,7 @@
 # ————————————————————————————————————————
 
 # ---------- Etapa 1: calidad (lint + tests) ----------
-FROM node:22-alpine AS calidad
+FROM node:26-alpine AS calidad
 WORKDIR /app
 
 # Copiamos primero los manifiestos para aprovechar la caché de capas

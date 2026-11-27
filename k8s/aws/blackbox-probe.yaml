@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: listadeperros-http
+  namespace: monitoreo
+  labels:
+    release: monitoreo
+    app: listadeperros
+spec:
+  jobName: listadeperros-blackbox
+  interval: 15s
+  scrapeTimeout: 10s
+  module: http_2xx
+  prober:
+    url: blackbox-prometheus-blackbox-exporter.monitoreo.svc.cluster.local:9115
+    path: /probe
+    scheme: http
+  targets:
+    staticConfig:
+      static:
+        - http://traefik.kube-system.svc.cluster.local/health
+        - http://traefik.kube-system.svc.cluster.local/
+      relabelingConfigs:
+        - sourceLabels: [__param_target]
+          targetLabel: endpoint

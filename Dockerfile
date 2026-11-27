@@ -39,7 +39,8 @@ COPY --chown=101:101 nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=calidad --chown=101:101 /dist/ /usr/share/nginx/html/
 
 USER 101
-EXPOSE 8080
+# 8080: aplicación · 8081: métricas internas (stub_status)
+EXPOSE 8080 8081
 
 # Docker revisa periódicamente que el servidor responda
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \

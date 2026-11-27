@@ -23,7 +23,7 @@ for (let y = 0; y <= 3000; y += 500) {
   await pagina.mouse.wheel(0, 500);
   await pagina.waitForTimeout(300);
 }
-await pagina.evaluate(() => window.scrollTo(0, 0));
+await pagina.mouse.wheel(0, -5000);
 
 // Espera a que existan los paneles y a que terminen de consultar datos
 const selector = '[data-viz-panel-key], [data-testid="data-testid panel content"], .react-grid-item';

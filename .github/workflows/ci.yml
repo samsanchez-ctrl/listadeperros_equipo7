@@ -400,6 +400,14 @@ jobs:
         run: |
           $COMPOSE up -d --no-build --wait --wait-timeout 180
           $COMPOSE ps
+          echo "Docker: $(docker info --format '{{.ServerVersion}} · almacenamiento {{.Driver}}')"
+
+      - name: 🩺 Diagnóstico de cAdvisor
+        run: |
+          sleep 20
+          $COMPOSE logs cadvisor --tail=30
+          echo "▶ Etiquetas de servicio que ve cAdvisor:"
+          curl -fsS --get http://localhost:9090/api/v1/label/container_label_com_docker_compose_service/values | jq -c '.data'
 
       - name: 📤 Enviar métricas del pipeline al Pushgateway
         run: |

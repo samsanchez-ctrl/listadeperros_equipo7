@@ -20,6 +20,9 @@ spec:
     metadata:
       labels:
         app: listadeperros
+      annotations:
+        # Trazabilidad: el pipeline reemplaza este valor por el SHA del commit
+        listadeperros/commit: "local"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -36,6 +39,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: status        # stub_status interno para el exportador
+              containerPort: 8081
           resources:
             requests:
               cpu: 50m
@@ -63,6 +68,25 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+        # Sidecar de observabilidad: traduce stub_status de Nginx a métricas Prometheus
+        - name: nginx-exporter
+          image: nginx/nginx-prometheus-exporter:1.4.2
+          args: ["--nginx.scrape-uri=http://127.0.0.1:8081/stub_status"]
+          ports:
+            - name: metrics
+              containerPort: 9113
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       volumes:
         - name: tmp
           emptyDir: {}

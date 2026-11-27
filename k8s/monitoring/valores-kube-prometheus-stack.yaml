@@ -1,0 +1,30 @@
+# Valores de Helm para kube-prometheus-stack (Prometheus Operator + Grafana + kube-state-metrics)
+# Instalación (la hace el pipeline automáticamente):
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade --install monitoreo prometheus-community/kube-prometheus-stack \
+#     -n monitoreo --create-namespace -f k8s/monitoring/valores-kube-prometheus-stack.yaml --wait
+
+# En el cluster de prueba no se necesitan avisos por correo/Slack
+alertmanager:
+  enabled: false
+
+# kind no expone métricas del nodo de forma estándar; CPU/memoria de los pods
+# se obtienen igual desde el kubelet (cAdvisor integrado)
+nodeExporter:
+  enabled: false
+
+grafana:
+  enabled: true
+  adminPassword: ""   # el chart genera una clave aleatoria y la guarda en un Secret
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    retention: 2d
+    # Leer TODOS los ServiceMonitor y PrometheusRule del cluster, no solo los del chart
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi

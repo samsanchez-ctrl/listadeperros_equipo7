@@ -1,0 +1,51 @@
+# Prometheus — qué se mide y cada cuánto
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+  external_labels:
+    proyecto: listadeperros
+
+rule_files:
+  - /etc/prometheus/reglas/*.yml
+
+scrape_configs:
+  # El propio Prometheus
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Peticiones y conexiones del servidor web (a través del balanceador)
+  - job_name: nginx
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+        labels:
+          servicio: lb
+
+  # CPU y memoria de cada contenedor
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Métricas del pipeline CI/CD (cobertura, tiempos, vulnerabilidades).
+  # honor_labels conserva las etiquetas que envía el pipeline (commit, etapa).
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
+  # Disponibilidad: blackbox hace una petición HTTP como un usuario real
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://lb:8080/health
+          - http://lb:8080/
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: endpoint
+      - target_label: __address__
+        replacement: blackbox:9115

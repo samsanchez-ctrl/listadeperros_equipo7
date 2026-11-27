@@ -1,0 +1,47 @@
+# Reglas de alerta para producción (Kubernetes)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: listadeperros-alertas
+  labels:
+    app: listadeperros
+spec:
+  groups:
+    - name: listadeperros-k8s
+      rules:
+        - alert: ListaDePerrosSinReplicasDisponibles
+          expr: kube_deployment_status_replicas_available{deployment="listadeperros"} < 2
+          for: 1m
+          labels:
+            severidad: critica
+          annotations:
+            resumen: "Menos de 2 réplicas disponibles (el PodDisruptionBudget exige 2)"
+            accion: "Revisar eventos del deployment con kubectl describe deployment listadeperros."
+
+        - alert: ListaDePerrosReinicios
+          expr: increase(kube_pod_container_status_restarts_total{pod=~"listadeperros-.*"}[10m]) > 2
+          labels:
+            severidad: advertencia
+          annotations:
+            resumen: "Una réplica se reinició más de 2 veces en 10 minutos"
+            accion: "Revisar logs del pod con kubectl logs."
+
+        - alert: ListaDePerrosMetricasNginxCaidas
+          expr: nginx_up{service="listadeperros"} == 0
+          for: 1m
+          labels:
+            severidad: critica
+          annotations:
+            resumen: "El sidecar no puede leer las métricas de Nginx"
+            accion: "Verificar el puerto 8081 (stub_status) del contenedor web."
+
+        - alert: ListaDePerrosMemoriaAlta
+          expr: |
+            sum by (pod) (container_memory_working_set_bytes{pod=~"listadeperros-.*", container="web"})
+              > 50 * 1024 * 1024
+          for: 2m
+          labels:
+            severidad: advertencia
+          annotations:
+            resumen: "Una réplica usa más del 78% de su límite de memoria"
+            accion: "Revisar consumo o ajustar limits en k8s/deployment.yaml."

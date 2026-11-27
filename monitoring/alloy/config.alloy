@@ -1,0 +1,54 @@
+// Alloy: recolecta los logs de todos los contenedores del proyecto y los envía a Loki.
+
+// 1. Descubre los contenedores que están corriendo en Docker
+discovery.docker "contenedores" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// 2. Reglas para etiquetar cada log con el servicio de Compose y el contenedor
+discovery.relabel "etiquetas" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "proyecto"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+// 3. Lee los logs de cada contenedor
+loki.source.docker "contenedores" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.contenedores.targets
+  relabel_rules = discovery.relabel.etiquetas.rules
+  forward_to    = [loki.process.nginx.receiver]
+}
+
+// 4. Los logs de Nginx vienen en JSON: se extrae el código HTTP como etiqueta
+//    para poder contar errores 4xx/5xx en Grafana.
+loki.process "nginx" {
+  stage.json {
+    expressions = { status = "status" }
+  }
+
+  stage.labels {
+    values = { status = "" }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// 5. Envía todo a Loki
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

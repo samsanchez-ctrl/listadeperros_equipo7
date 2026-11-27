@@ -1,0 +1,121 @@
+# docker-compose.monitoring.yml — Observabilidad (EP3)
+#
+# Se usa JUNTO con docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build
+#
+#   Grafana      http://localhost:3000   (dashboard "Lista de Perros — Observabilidad y CI/CD")
+#   Prometheus   http://localhost:9090   (métricas, targets y alertas)
+#   Pushgateway  http://localhost:9091   (métricas que envía el pipeline CI/CD)
+#   Loki         http://localhost:3100   (logs, se consultan desde Grafana)
+#
+#                 ┌──────────── métricas ─────────────┐
+#   lb / app ──► nginx-exporter ─┐                    │
+#   contenedores ► cAdvisor ─────┤                    ▼
+#   /health ───► blackbox ───────┼──► Prometheus ──► Grafana
+#   pipeline ──► Pushgateway ────┘                    ▲
+#   logs ──────► Alloy ──────────────► Loki ──────────┘
+
+services:
+  # ——— Métricas del servidor web (peticiones, conexiones) ———
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.4.2
+    command: ["--nginx.scrape-uri=http://lb:8081/stub_status"]
+    depends_on:
+      lb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [interna]
+
+  # ——— Disponibilidad y latencia: prueba /health y / como lo haría un usuario ———
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    networks: [interna]
+
+  # ——— Uso de CPU y memoria de cada contenedor ———
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    # Requiere que Docker use el almacenamiento clásico (overlay2). Con el almacenamiento
+    # de containerd, cAdvisor no encuentra las capas de los contenedores.
+    # Docker Desktop: Settings → General → desmarcar "Use containerd for pulling and storing images".
+    command: ["--docker_only=true", "--housekeeping_interval=10s", "--store_container_labels=true"]
+    privileged: true
+    devices: ["/dev/kmsg"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+    networks: [interna]
+
+  # ——— Recibe las métricas del pipeline (cobertura, tiempos, vulnerabilidades) ———
+  pushgateway:
+    image: prom/pushgateway:v1.11.1
+    ports: ["127.0.0.1:9091:9091"]
+    restart: unless-stopped
+    networks: [interna]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/reglas:/etc/prometheus/reglas:ro
+      - prometheus-datos:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    restart: unless-stopped
+    networks: [interna]
+
+  # ——— Logs: Alloy lee los logs de todos los contenedores y los envía a Loki ———
+  loki:
+    image: grafana/loki:3.5.3
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./monitoring/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-datos:/loki
+    ports: ["127.0.0.1:3100:3100"]
+    restart: unless-stopped
+    networks: [interna]
+
+  alloy:
+    image: grafana/alloy:v1.10.2
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+    restart: unless-stopped
+    networks: [interna]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      # La clave real se define con la variable GRAFANA_ADMIN_PASSWORD (nunca en el código)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-cambiar-esta-clave}
+      # Acceso anónimo de solo lectura para ver el dashboard en la demo
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/listadeperros.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-datos:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+    networks: [interna]
+
+volumes:
+  prometheus-datos:
+  loki-datos:
+  grafana-datos:

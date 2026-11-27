@@ -1,0 +1,62 @@
+# Alertas: condiciones que indican un problema y requieren una decisión técnica.
+# Se ven en Prometheus → Alerts y en el dashboard de Grafana.
+groups:
+  - name: listadeperros-disponibilidad
+    rules:
+      - alert: ListaDePerrosCaida
+        expr: probe_success{endpoint="http://lb:8080/health"} == 0
+        for: 1m
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "La aplicación no responde en /health"
+          accion: "Revisar logs del balanceador y de las réplicas en Grafana (Loki)."
+
+      - alert: LatenciaAlta
+        expr: probe_duration_seconds{endpoint="http://lb:8080/"} > 1
+        for: 2m
+        labels:
+          severidad: advertencia
+        annotations:
+          resumen: "La página tarda más de 1 segundo en responder"
+          accion: "Revisar uso de CPU de las réplicas y considerar escalar."
+
+  - name: listadeperros-errores
+    rules:
+      - alert: MetricasNginxNoDisponibles
+        expr: nginx_up == 0 or up{job="nginx"} == 0
+        for: 1m
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "El exportador no puede leer las métricas de Nginx"
+          accion: "Verificar que el puerto interno 8081 (stub_status) responda."
+
+  - name: listadeperros-recursos
+    rules:
+      - alert: MemoriaAltaReplica
+        expr: container_memory_working_set_bytes{container_label_com_docker_compose_service="app"} > 50 * 1024 * 1024
+        for: 2m
+        labels:
+          severidad: advertencia
+        annotations:
+          resumen: "Una réplica usa más del 78% de su límite de memoria (64 MB)"
+          accion: "Revisar si hay una fuga de memoria o subir el límite."
+
+  - name: listadeperros-calidad-cicd
+    rules:
+      - alert: CoberturaBajoUmbral
+        expr: ci_cobertura_lineas_porcentaje < 80
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "La cobertura de pruebas bajó del 80% exigido"
+          accion: "Agregar pruebas antes de desplegar."
+
+      - alert: VulnerabilidadesEnImagen
+        expr: sum(ci_vulnerabilidades) > 0
+        labels:
+          severidad: critica
+        annotations:
+          resumen: "Trivy reporta vulnerabilidades HIGH/CRITICAL en la imagen"
+          accion: "Actualizar la imagen base o los paquetes antes de desplegar."

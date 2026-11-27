@@ -439,10 +439,11 @@ jobs:
       - name: ✅ Verificar métricas, logs y alertas
         run: bash monitoring/scripts/verificar-observabilidad.sh
 
+      # Evidencia visual (no bloquea el despliegue si falla): usa el Chrome del runner
       - name: 📸 Captura del dashboard de Grafana
+        continue-on-error: true
         run: |
           npm install --no-save --no-audit --no-fund playwright@1.56.1
-          npx playwright install --with-deps chromium
           node monitoring/scripts/captura-dashboard.mjs dashboard-grafana.png
 
       - name: 🧾 Exportar evidencias (alertas, targets, métricas)

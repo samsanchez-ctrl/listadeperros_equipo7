@@ -393,6 +393,18 @@ jobs:
           path: metricas
           merge-multiple: true
 
+      # cAdvisor (CPU/memoria por contenedor) necesita el almacenamiento clásico overlay2;
+      # Docker 29 usa por defecto el de containerd. Se cambia ANTES de cargar la imagen.
+      - name: 🔧 Docker con almacenamiento overlay2 (requerido por cAdvisor)
+        run: |
+          CONFIG=/etc/docker/daemon.json
+          [ -s "$CONFIG" ] || echo '{}' | sudo tee "$CONFIG" > /dev/null
+          jq '. + {"features": ((.features // {}) + {"containerd-snapshotter": false})}' "$CONFIG" | sudo tee "$CONFIG.nuevo" > /dev/null
+          sudo mv "$CONFIG.nuevo" "$CONFIG"
+          sudo systemctl restart docker
+          for i in $(seq 1 30); do docker info > /dev/null 2>&1 && break; sleep 1; done
+          docker info --format 'Docker {{.ServerVersion}} · almacenamiento {{.Driver}}'
+
       - name: 🐳 Cargar imagen en Docker
         run: gunzip -c imagen.tar.gz | docker load
 
@@ -405,7 +417,7 @@ jobs:
       - name: 🩺 Diagnóstico de cAdvisor
         run: |
           sleep 20
-          $COMPOSE logs cadvisor --tail=30
+          $COMPOSE logs cadvisor --tail=15
           echo "▶ Etiquetas de servicio que ve cAdvisor:"
           curl -fsS --get http://localhost:9090/api/v1/label/container_label_com_docker_compose_service/values | jq -c '.data'
 

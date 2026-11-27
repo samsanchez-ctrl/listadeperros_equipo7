@@ -35,19 +35,15 @@ services:
   # ——— Uso de CPU y memoria de cada contenedor ———
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
-    # Lee los contenedores por Docker y también por containerd (namespace "moby"),
-    # que es donde Docker 29+ guarda los contenedores con el nuevo almacenamiento.
-    command:
-      - --housekeeping_interval=10s
-      - --containerd=/run/containerd/containerd.sock
-      - --containerd-namespace=moby
-      - --store_container_labels=true
+    # Requiere que Docker use el almacenamiento clásico (overlay2). Con el almacenamiento
+    # de containerd, cAdvisor no encuentra las capas de los contenedores.
+    # Docker Desktop: Settings → General → desmarcar "Use containerd for pulling and storing images".
+    command: ["--docker_only=true", "--housekeeping_interval=10s", "--store_container_labels=true"]
     privileged: true
     devices: ["/dev/kmsg"]
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
-      - /run/containerd:/run/containerd:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
     restart: unless-stopped

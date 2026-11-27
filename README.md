@@ -6,6 +6,7 @@ Aplicación web que muestra imágenes aleatorias de perros obtenidas desde la AP
 
 - **Evaluación Parcial N°1:** flujo colaborativo con Git, GitHub y un CI básico.
 - **Evaluación Parcial N°2:** pipeline CI/CD completo en GitHub Actions con contenedores, pruebas automatizadas, análisis de seguridad, despliegue automático y orquestación.
+- **Evaluación Parcial N°3:** observabilidad (Prometheus, Grafana, Loki, Alloy), métricas del pipeline en un dashboard y políticas de cumplimiento automatizadas que detienen el pipeline ante fallas críticas. Ver [Observabilidad y Cumplimiento](#-observabilidad-y-cumplimiento-ep3).
 
 ---
 
@@ -28,6 +29,13 @@ docker compose up -d --build      # construye la imagen y levanta todo
 # abrir http://localhost:8080
 docker compose up -d --scale app=5   # escalar a 5 réplicas
 docker compose down
+```
+
+### Opción 2b — Con monitoreo (Prometheus + Grafana + Loki)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build
+# Grafana: http://localhost:3000 · Prometheus: http://localhost:9090
 ```
 
 ### Opción 3 — Kubernetes local (kind)
@@ -219,6 +227,162 @@ issue / tarea → rama feature/* → commits (Conventional Commits) → Pull Req
 
 ---
 
+## 🔭 Observabilidad y Cumplimiento (EP3)
+
+En la EP3 el pipeline se extendió para que el microservicio **se pueda observar en ejecución** (métricas, logs, disponibilidad y alertas), para que el propio pipeline **mida su calidad** y la muestre en un dashboard, y para que **ninguna versión llegue a producción si no cumple las políticas** de seguridad y calidad.
+
+### Arquitectura de observabilidad
+
+```
+                         ┌──────────────────── métricas ─────────────────────┐
+  lb / app (Nginx) ──► nginx-exporter (peticiones, conexiones) ─┐            │
+  contenedores ──────► cAdvisor (CPU, memoria por contenedor) ──┤            ▼
+  /health y / ───────► Blackbox exporter (disponibilidad) ──────┼──► Prometheus ──► Grafana
+  pipeline CI/CD ────► Pushgateway (cobertura, tiempos, vulns) ─┘   (alertas)       ▲
+  logs JSON de Nginx ► Alloy ───────────────────────────────────────► Loki ─────────┘
+```
+
+| Herramienta | Rol | Qué permite observar | Archivo |
+|---|---|---|---|
+| **Prometheus** | Recolecta y guarda métricas; evalúa alertas | Todo lo numérico: tráfico, recursos, disponibilidad, CI/CD | `monitoring/prometheus/` |
+| **Grafana** | Dashboard personalizado | Una vista única de app + pipeline | `monitoring/grafana/` |
+| **Loki** | Almacena logs | Búsqueda de logs y conteo de errores 4xx/5xx | `monitoring/loki/` |
+| **Alloy** | Recolecta logs de los contenedores | Envía los logs a Loki etiquetados por servicio y código HTTP | `monitoring/alloy/` |
+| **Nginx Exporter** | Traduce `stub_status` de Nginx a métricas | Peticiones por segundo, conexiones activas | `docker-compose.monitoring.yml` |
+| **cAdvisor** | Métricas de contenedores | Uso de CPU y memoria de cada réplica | `docker-compose.monitoring.yml` |
+| **Blackbox Exporter** | Prueba la app desde afuera | Disponibilidad (`/health`) y latencia de la página | `monitoring/prometheus/prometheus.yml` |
+| **Pushgateway** | Recibe métricas del pipeline | Cobertura, pruebas, tiempo de despliegue, vulnerabilidades, políticas | `docker-compose.monitoring.yml` |
+| **kube-prometheus-stack** | Monitoreo en Kubernetes (producción) | Réplicas, reinicios, memoria por pod, métricas de Nginx vía `ServiceMonitor` | `k8s/monitoring/` |
+
+**Cambios en la app para hacerla observable:**
+- Nginx escribe sus logs de acceso en **JSON** (`nginx.conf`, `loadbalancer/nginx.conf`), lo que permite filtrar por código HTTP.
+- Nginx expone `stub_status` en un **puerto interno 8081** (solo redes privadas), que lee el exportador.
+- En Kubernetes cada réplica lleva un **sidecar `nginx-exporter`** y el `Service` publica el puerto `metrics`.
+
+### Levantar el monitoreo localmente
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build
+bash monitoring/scripts/generar-trafico.sh      # genera tráfico y algunos 404 controlados
+```
+
+| Servicio | URL |
+|---|---|
+| App | http://localhost:8080 |
+| Grafana (dashboard) | http://localhost:3000 |
+| Prometheus (métricas y alertas) | http://localhost:9090/alerts |
+| Pushgateway | http://localhost:9091 |
+
+La clave de administrador de Grafana se define con la variable `GRAFANA_ADMIN_PASSWORD` (no está escrita en el código). Para ver el dashboard no hace falta iniciar sesión: hay acceso anónimo de solo lectura.
+
+### Dashboard: "Lista de Perros — Observabilidad y CI/CD"
+
+Archivo versionado: `monitoring/grafana/dashboards/listadeperros.json` (Grafana lo carga solo al iniciar).
+
+| Sección | Métricas | Fuente |
+|---|---|---|
+| 🟢 Disponibilidad | Estado de `/health`, % de disponibilidad, réplicas activas, latencia, peticiones/s, alertas activas | Blackbox, cAdvisor, Nginx Exporter, Prometheus |
+| 🚀 Pipeline CI/CD | **Cobertura de pruebas**, pruebas ejecutadas y fallidas, **tiempo de despliegue**, vulnerabilidades HIGH/CRITICAL, políticas de cumplimiento OK, duración de cada etapa, commit desplegado | Pushgateway (enviado por el pipeline) |
+| ⚠️ Errores y logs | **Errores registrados** por código HTTP, total de errores, últimos logs con error | Loki |
+| 🖥️ Recursos | **Uso de CPU y memoria** por servicio, tráfico y conexiones | cAdvisor, Nginx Exporter |
+
+### Alertas configuradas
+
+| Alerta | Condición | Decisión que habilita |
+|---|---|---|
+| `ListaDePerrosCaida` | `/health` falla por 1 minuto | Revisar logs en Loki y reiniciar o hacer rollback |
+| `LatenciaAlta` | La página tarda más de 1 s por 2 minutos | Escalar réplicas o revisar recursos |
+| `MetricasNginxNoDisponibles` | El exportador no puede leer Nginx | Revisar el puerto interno 8081 |
+| `MemoriaAltaReplica` | Una réplica supera 50 MB (límite 64 MB) | Buscar fuga de memoria o ajustar límites |
+| `CoberturaBajoUmbral` | Cobertura < 80% | No desplegar hasta agregar pruebas |
+| `VulnerabilidadesEnImagen` | Trivy reporta HIGH/CRITICAL | Actualizar imagen base antes de desplegar |
+| `ListaDePerrosSinReplicasDisponibles` (K8s) | Menos de 2 réplicas disponibles | Revisar eventos del deployment |
+| `ListaDePerrosReinicios` (K8s) | Más de 2 reinicios en 10 minutos | Revisar logs del pod |
+
+### Integración en el pipeline CI/CD
+
+| Etapa | Qué agrega en la EP3 | Métricas que envía al dashboard |
+|---|---|---|
+| 1 · Calidad | Reporte de cobertura en JSON | `ci_cobertura_*`, `ci_tests_total`, `ci_tests_fallidos` |
+| 2 · Seguridad | — | Duración de la etapa |
+| 3 · **Cumplimiento** *(nueva)* | Título de PR, **Gitleaks** (secretos en código e historial) y **auditoría de políticas** | `ci_auditoria_politicas_*` |
+| 4 · Build | Trivy genera reporte JSON y un **gate** explícito decide si sigue | `ci_vulnerabilidades`, tamaño de imagen |
+| 5 · Staging | Mide el **tiempo de despliegue** | `ci_despliegue_duracion_segundos` |
+| 6 · **Observabilidad** *(nueva)* | Levanta app + monitoreo, envía las métricas del pipeline al Pushgateway, genera tráfico, **verifica** que métricas, logs y alertas existan y **toma una captura del dashboard** | — |
+| 7 · Producción | Instala **kube-prometheus-stack** en el cluster, aplica `ServiceMonitor` y `PrometheusRule`, y **verifica** que Prometheus monitorea las 3 réplicas | Tiempo de despliegue en Kubernetes (resumen) |
+
+**Evidencias que deja cada ejecución** (pestaña *Actions → ejecución → Artifacts*):
+- `observabilidad-<sha>`: captura del dashboard (`dashboard-grafana.png`), targets y alertas de Prometheus, logs de error de Loki y las métricas enviadas.
+- `auditoria-<sha>`: reporte JSON de la auditoría de cumplimiento.
+- `cobertura-<sha>`: reporte de cobertura de Jest.
+
+**Cómo apoya la toma de decisiones técnicas:**
+- **¿Se puede desplegar?** El dashboard y los gates muestran cobertura, vulnerabilidades y políticas antes de llegar a producción.
+- **¿El pipeline se está volviendo lento?** La duración por etapa muestra dónde optimizar.
+- **¿La app está sana?** Disponibilidad, latencia y errores 4xx/5xx en tiempo real; las alertas avisan sin tener que mirar.
+- **¿Hace falta escalar?** CPU y memoria por réplica frente a los límites definidos.
+- **¿Qué versión está corriendo?** El panel "Commit desplegado" y la anotación `listadeperros/commit` en Kubernetes.
+
+### 📋 Políticas de cumplimiento (auditoría automatizada)
+
+`scripts/auditoria.mjs` revisa el repositorio en cada ejecución. Una política **crítica** que no se cumple **detiene el pipeline**. El resultado se publica en el resumen de la ejecución y como artefacto.
+
+| ID | Política | Norma de referencia | Severidad |
+|---|---|---|---|
+| POL-01 | La imagen final no se ejecuta como root | CIS Docker Benchmark 4.1 | Crítica |
+| POL-02 | La imagen define un HEALTHCHECK | CIS Docker Benchmark 4.6 | Crítica |
+| POL-03 | Imágenes con versión fija (sin `:latest`) | CIS Docker Benchmark 4.2 · OWASP CICD-SEC-3 | Crítica |
+| POL-04 | Pods con contexto de seguridad restringido | Kubernetes Pod Security Standards (restricted) | Crítica |
+| POL-05 | Todos los contenedores limitan CPU y memoria | CIS Kubernetes Benchmark 5.7 · ISO/IEC 25010 | Crítica |
+| POL-06 | Sondas de salud liveness y readiness | ISO/IEC 25010 (fiabilidad) | Crítica |
+| POL-07 | El pipeline usa permisos mínimos | OWASP CICD-SEC-5 | Crítica |
+| POL-08 | Acciones de terceros con versión fija | OWASP CICD-SEC-8 | Crítica |
+| POL-09 | No hay secretos escritos en el repositorio | OWASP CICD-SEC-6 · ISO/IEC 27001 A.8.24 | Crítica |
+| POL-10 | Dependencias solo con licencias permitidas | ISO/IEC 27001 A.5.32 | Crítica |
+| POL-11 | Commits del PR siguen Conventional Commits | OWASP CICD-SEC-1 | Crítica |
+| POL-12 | El servicio desplegado es observable | OWASP CICD-SEC-10 | Crítica |
+| POL-13 | Documentación obligatoria presente | ISO/IEC 27001 A.5.37 | Advertencia |
+
+Además de la auditoría:
+- **Gitleaks** busca secretos en los archivos actuales y en **todo el historial** de commits.
+- El **título de cada Pull Request** debe seguir Conventional Commits.
+- **Protección de ramas** en GitHub para `main` y `develop` (ver abajo).
+- Se mantienen los controles de la EP2: ESLint, cobertura mínima, npm audit, Snyk, Trivy y Dependabot.
+
+#### Configurar la protección de ramas (dueño del repositorio, una sola vez)
+
+*Settings → Branches → Add branch ruleset* (o *Add rule*) para `main` y luego para `develop`:
+1. **Require a pull request before merging** → *Require approvals*: 1.
+2. **Require status checks to pass** → agregar: `1 · Lint y pruebas unitarias`, `2 · Seguridad (npm audit + Snyk)`, `3 · Cumplimiento y auditoría (políticas + secretos)`, `4 · Build de imagen Docker + gate de seguridad Trivy`, `5 · Despliegue staging (Docker Compose, 3 réplicas)` y `6 · Observabilidad (Prometheus, Grafana, Loki) y métricas del pipeline`.
+3. **Block force pushes** y **Restrict deletions**.
+
+Con esto, GitHub no permite mergear un cambio que no pasó los controles.
+
+### 🛑 El pipeline se detiene ante fallas críticas
+
+| Falla | Dónde se detecta | Qué pasa |
+|---|---|---|
+| Un test falla o la cobertura baja de 80% | 1 · Calidad | No se construye la imagen |
+| Dependencia vulnerable (HIGH/CRITICAL) | 2 · Seguridad (npm audit, Snyk) | No se construye la imagen |
+| Secreto en el código o en el historial | 3 · Cumplimiento (Gitleaks, POL-09) | No se construye la imagen |
+| Política crítica incumplida (root, sin límites, sin probes, etc.) | 3 · Cumplimiento (auditoría) | No se construye la imagen |
+| Imagen con vulnerabilidades HIGH/CRITICAL | 4 · Build (gate Trivy) | La imagen no se despliega |
+| La app no responde o falla un smoke test | 5 · Staging | No llega a producción |
+| La app no se puede monitorear (faltan métricas o logs) | 6 · Observabilidad | No llega a producción |
+| Rollout fallido o Prometheus no ve las réplicas | 7 · Producción | No se publica la imagen |
+
+**Demostración controlada:** *Actions → CI/CD — Lista de Perros → Run workflow* y elegir en **simular_falla**:
+- `calidad`: exige 101% de cobertura → la etapa 1 falla y nada se despliega.
+- `seguridad`: agrega una clave privada falsa → Gitleaks y la auditoría la detectan, la etapa 3 falla y nada se despliega.
+
+Evidencia real previa (EP2): Trivy detectó **47 vulnerabilidades HIGH** en la imagen base y el pipeline se detuvo hasta corregirlas.
+
+### ☁️ Entorno de ejecución
+
+El entorno productivo es un **cluster Kubernetes (kind) creado en cada ejecución sobre los runners en la nube de GitHub Actions**, con el monitoreo instalado automáticamente por el pipeline. Es un entorno cloud simulado: se crea, se despliega, se verifica y se destruye en cada ejecución, por lo que sus métricas quedan registradas en el resumen y los artefactos de cada ejecución.
+
+---
+
 ## 📁 Estructura de carpetas
 
 ```
@@ -232,6 +396,10 @@ listadeperros_equipo7/
 │   ├── service.yaml
 │   ├── hpa.yaml
 │   └── pdb.yaml
+├── k8s/monitoring/               ← ServiceMonitor, alertas y valores de kube-prometheus-stack
+├── monitoring/                   ← Prometheus, Grafana (dashboard), Loki, Alloy y scripts
+├── scripts/                      ← Auditoría de cumplimiento y gate de Trivy
+├── docker-compose.monitoring.yml ← Stack de observabilidad
 ├── loadbalancer/nginx.conf       ← Balanceador para Docker Compose
 ├── tests/
 │   ├── logica.test.js            ← Pruebas unitarias
@@ -267,6 +435,27 @@ La base de la app venía con fallos de fábrica. Trivy nos frenó todo y aprendi
 
 ---
 
+## 🧠 Decisiones técnicas EP3
+
+> ✍️ **Completar por el equipo (sin IA, según la pauta).** Una o dos frases por punto.
+
+**¿Por qué Prometheus + Grafana + Loki y no AWS CloudWatch?**
+[por qué]
+
+**¿Qué métricas elegimos para el dashboard y qué decisión permite tomar cada una?**
+[por qué]
+
+**¿Por qué el pipeline se detiene si la app no se puede monitorear?**
+[por qué]
+
+**¿Por qué estas políticas de cumplimiento y estas normas (CIS, OWASP, ISO 27001)?**
+[por qué]
+
+**¿Qué haríamos distinto en un entorno productivo real?**
+[por qué]
+
+---
+
 ## 👥 Autores
 
 - **Integrante 1** — Freddy Muñoz
@@ -275,7 +464,29 @@ La base de la app venía con fallos de fábrica. Trivy nos frenó todo y aprendi
 
 ---
 
-## 💭 Reflexiones individuales
+## 💭 Conclusiones y reflexiones individuales (EP3)
+
+> ✍️ Cada integrante escribe la suya **sin apoyo de IA** (requisito de la pauta).
+
+### Vicente Maulén
+
+**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+
+**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+
+**Mi aporte al proyecto:** [qué hiciste tú]
+
+### [Compañero/a de pareja]
+
+**¿Qué aprendí?** [qué no sabías hacer antes y ahora sí]
+
+**¿Qué me costó más?** [una dificultad concreta y cómo la resolviste]
+
+**Mi aporte al proyecto:** [qué hiciste tú]
+
+---
+
+## 💭 Reflexiones individuales (EP2)
 
 > Escritas por cada integrante sin apoyo de IA.
 
@@ -312,6 +523,7 @@ La base de la app venía con fallos de fábrica. Trivy nos frenó todo y aprendi
 Se utilizó **Claude (Anthropic)** como herramienta de apoyo para:
 - EP1: estructurar el README, diseñar el workflow inicial y verificar la sintaxis del script de configuración.
 - EP2: proponer la estructura del pipeline de GitHub Actions, el Dockerfile multi-stage, los manifiestos de Kubernetes, la configuración de Docker Compose y ejemplos de pruebas con Jest.
+- EP3: proponer la configuración del stack de monitoreo (Prometheus, Grafana, Loki, Alloy y exporters), el dashboard, los scripts de auditoría y de verificación de observabilidad, y la extensión del pipeline.
 
 Todo el contenido generado fue revisado, ejecutado y validado por el equipo. Las decisiones técnicas, justificaciones, conclusiones y reflexiones individuales fueron escritas por los integrantes sin apoyo de IA.
 

@@ -1,13 +1,16 @@
 {
   "name": "listadeperros-equipo7",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Lista de Perros — Equipo 7 · DOY0101 Ingeniería DevOps",
   "private": true,
   "scripts": {
     "lint": "eslint .",
     "test": "jest",
-    "test:ci": "jest --ci --coverage",
-    "start": "npx serve ."
+    "test:ci": "jest --ci --coverage --json --outputFile=jest-resultados.json",
+    "start": "npx serve .",
+    "auditoria": "node scripts/auditoria.mjs",
+    "monitoreo": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build",
+    "monitoreo:bajar": "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down"
   },
   "jest": {
     "testEnvironment": "jsdom",
@@ -17,7 +20,8 @@
     ],
     "coverageReporters": [
       "text",
-      "lcov"
+      "lcov",
+      "json-summary"
     ],
     "coverageThreshold": {
       "global": {
@@ -36,6 +40,7 @@
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
     "jest": "^30.5.2",
-    "jest-environment-jsdom": "^30.5.2"
+    "jest-environment-jsdom": "^30.5.2",
+    "yaml": "^2.9.1"
   }
 }

@@ -3,7 +3,7 @@ const js = require('@eslint/js');
 const globals = require('globals');
 
 module.exports = [
-  { ignores: ['node_modules/', 'coverage/'] },
+  { ignores: ['node_modules/', 'coverage/', 'reportes/'] },
   js.configs.recommended,
   {
     // Código que corre en el navegador (scripts clásicos, no módulos)
@@ -29,6 +29,15 @@ module.exports = [
       ecmaVersion: 2022,
       sourceType: 'commonjs',
       globals: { ...globals.node, ...globals.jest, ...globals.browser },
+    },
+  },
+  {
+    // Scripts de auditoría, métricas y monitoreo (Node, módulos ES)
+    files: ['scripts/**/*.mjs', 'monitoring/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
     },
   },
 ];

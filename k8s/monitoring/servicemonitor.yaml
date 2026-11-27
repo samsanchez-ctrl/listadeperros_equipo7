@@ -1,0 +1,16 @@
+# ServiceMonitor: le indica al Prometheus del cluster (kube-prometheus-stack)
+# que lea las métricas del sidecar nginx-exporter de cada réplica.
+# Se aplica después de instalar el stack de monitoreo (necesita sus CRDs).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: listadeperros
+  labels:
+    app: listadeperros
+spec:
+  selector:
+    matchLabels:
+      app: listadeperros
+  endpoints:
+    - port: metrics
+      interval: 15s

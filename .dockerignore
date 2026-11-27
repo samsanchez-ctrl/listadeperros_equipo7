@@ -9,3 +9,8 @@ setup.sh
 *.md
 Dockerfile
 .dockerignore
+monitoring
+scripts
+docker-compose.monitoring.yml
+reportes
+metricas
